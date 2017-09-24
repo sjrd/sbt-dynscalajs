@@ -5,6 +5,8 @@ language: scala
 script:
   - sbt ++$TRAVIS_SCALA_VERSION sbt-dynscalajs/publishLocal
   - sbt ++$TRAVIS_SCALA_VERSION sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
+  - sbt ++$TRAVIS_SCALA_VERSION 'set every dynScalaJSVersion := Some("0.6.20")' sbt-dynscalajs-test-project/fastOptJS
+  - sbt ++$TRAVIS_SCALA_VERSION 'set every dynScalaJSVersion := Some("1.0.0-M1")' sbt-dynscalajs-test-project/fastOptJS
 
 scala:
   - "2.12.3"
