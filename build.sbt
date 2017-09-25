@@ -55,6 +55,7 @@ lazy val `sbt-dynscalajs-test-project`: Project = project.
   in(file("test-project")).
   enablePlugins(DynScalaJSPlugin).
   settings(
+    scalaJSUseMainModuleInitializer := true,
     libraryDependencies += "com.lihaoyi" %%% "utest" % "0.5.3" % "test",
     testFrameworks += new TestFramework("utest.runner.Framework")
   )
