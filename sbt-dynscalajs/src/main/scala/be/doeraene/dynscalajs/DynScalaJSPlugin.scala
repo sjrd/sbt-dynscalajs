@@ -5,6 +5,8 @@ import scala.language.reflectiveCalls
 import sbt._
 import sbt.Keys._
 
+import sbtcrossproject.CrossPlugin.autoImport._
+
 object DynScalaJSPlugin extends AutoPlugin {
   override def requires: Plugins = plugins.JvmPlugin
 
@@ -191,6 +193,14 @@ object DynScalaJSPlugin extends AutoPlugin {
   val testConfigSettings: Seq[Setting[_]] = configSettings
 
   val baseProjectSettings: Seq[Setting[_]] = Seq(
+      crossPlatform := {
+        val prev = crossPlatform.value
+        dynScalaJSVersion.value match {
+          case None    => prev
+          case Some(v) => JSPlatform(v)
+        }
+      },
+
       crossTarget := {
         val prev = crossTarget.value
         dynScalaJSVersion.value match {
