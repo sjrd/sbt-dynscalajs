@@ -9,8 +9,12 @@ import sbtcrossproject.CrossPlugin.autoImport._
 
 import org.scalajs.core.tools.io.{IO => _, _}
 
+import org.scalajs.core.tools.linker.ModuleKind
+
 import org.scalajs.jsenv._
 import org.scalajs.jsenv.nodejs.NodeJSEnv
+
+import org.scalajs.testadapter.FrameworkDetector
 
 object DynScalaJSPlugin extends AutoPlugin {
   override def requires: Plugins = plugins.JvmPlugin
@@ -330,6 +334,52 @@ object DynScalaJSPlugin extends AutoPlugin {
        * configurations, even if it is true in the Global configuration scope.
        */
       scalaJSUseMainModuleInitializer := false,
+
+      loadedTestFrameworks := Def.settingDyn[Task[Map[TestFramework, sbt.testing.Framework]]] {
+        dynScalaJSVersion.value match {
+          case None =>
+            Def.task {
+              val loader = testLoader.value
+              val log = streams.value.log
+              testFrameworks.value.flatMap { f =>
+                f.create(loader, log).map(x => (f, x)).toIterable
+              }.toMap
+            }
+
+          case Some(scalaJSVersion) =>
+            Def.task {
+              if (fork.value) {
+                throw new MessageOnlyException(
+                    "`test` tasks in a Scala.js project require " +
+                    "`fork in Test := false`.")
+              }
+
+              val s = streams.value
+
+              val env = jsEnv.value match {
+                case env: ComJSEnv =>
+                  env
+                case env =>
+                  throw new MessageOnlyException(
+                      s"You need a ComJSEnv to test (found ${env.name})")
+              }
+
+              val files = jsExecutionFiles.value
+
+              // TODO Fetch this from scalaJSLinkerConfig
+              val moduleKind = ModuleKind.NoModule
+              val moduleIdentifier = None
+
+              val frameworksAndTheirImplNames =
+                testFrameworks.value.map(f => f -> f.implClassNames.toList)
+
+              val logger = Loggers.sbtLogger2ToolsLogger(s.log)
+
+              FrameworkDetector.detectFrameworks(env, files, moduleKind,
+                  moduleIdentifier, frameworksAndTheirImplNames, logger)
+            }
+        }
+      }.value,
   )
 
   val baseProjectSettings: Seq[Setting[_]] = Seq(
