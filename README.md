@@ -38,15 +38,10 @@ All of the following apply:
 
 ## Setup
 
-First, you need to locally publish this plugin, as there is no release yet:
-
-    $ sbt
-    > sbt-dynscalajs/publishLocal
-
-Then, in your project, add the following dependency in your `project/plugins.sbt` file.
+Add the following dependency in your `project/plugins.sbt` file.
 
 ```scala
-addSbtPlugin("be.doeraene" % "sbt-dynscalajs" % "0.1.0-SNAPSHOT")
+addSbtPlugin("be.doeraene" % "sbt-dynscalajs" % "0.1.0")
 ```
 
 You will also need to enable the `DynScalaJSPlugin` auto-plugin on `project`s you want to cross-compile, e.g.
