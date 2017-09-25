@@ -5,6 +5,8 @@ import scala.language.reflectiveCalls
 import sbt._
 import sbt.Keys._
 
+import sbtcrossproject.CrossPlugin.autoImport._
+
 object DynScalaJSPlugin extends AutoPlugin {
   override def requires: Plugins = plugins.JvmPlugin
 
@@ -12,32 +14,60 @@ object DynScalaJSPlugin extends AutoPlugin {
     val dynScalaJSVersion: SettingKey[Option[String]] =
       settingKey[Option[String]]("the version of Scala.js to use, or None for the JVM")
 
-    val dynScalaJSLinkerClassLoader: TaskKey[ClassLoader] =
+    val dynScalaJSClassLoader: TaskKey[ClassLoader] =
       taskKey[ClassLoader]("a ClassLoader loaded with the Scala.js linker API")
 
+    /** Must be a `Linker` from `dynScalaJSClassLoader`. */
     val dynScalaJSLinker: TaskKey[AnyRef] =
       taskKey[AnyRef]("instance of the Scala.js linker")
 
+    val scalaJSUseMainModuleInitializer: SettingKey[Boolean] =
+      settingKey[Boolean]("If true, adds the `mainClass` as a module initializer of the Scala.js module")
+
+    /** Must be a `ModuleInitializer` from `dynScalaJSClassLoader`. */
+    val scalaJSMainModuleInitializer: TaskKey[Option[Any]] =
+      taskKey[Option[Any]]("The main module initializer, used if `scalaJSUseMainModuleInitializer` is true")
+
+    /** Elements must be `ModuleInitializer`s from `dynScalaJSClassLoader`. */
+    val scalaJSModuleInitializers: TaskKey[Seq[Any]] =
+      taskKey[Seq[Any]]("Module initializers of the Scala.js application, to be called when it starts.")
+
     val fastOptJS: TaskKey[Attributed[File]] =
       taskKey[Attributed[File]]("fastOptJS")
+
+    /** Must be a `JSEnv` from `dynScalaJSClassLoader`. */
+    val jsEnv: TaskKey[Any] =
+      taskKey[Any]("The JavaScript environment in which to run and test Scala.js applications.")
+
+    /** Elements must be `VirtualJSFile`s from `dynScalaJSClassLoader. */
+    val jsExecutionFiles: TaskKey[Seq[Any]] =
+      taskKey[Seq[Any]]("All the VirtualJSFiles given to JS environments on `run`, `test`, etc.")
   }
 
   import autoImport._
 
+  private def argsConform(parameterTypes: Array[Class[_]],
+      args: Seq[Any]): Boolean = {
+    parameterTypes.size == args.size &&
+    parameterTypes.zip(args).forall {
+      case (formal, actual) =>
+        formal.isPrimitive() || formal.isInstance(actual)
+    }
+  }
+
   private def loadModule(classLoader: ClassLoader, moduleName: String): AnyRef =
     classLoader.loadClass(moduleName + "$").getField("MODULE$").get(null)
 
-  private def newInstance(classLoader: ClassLoader, className: String): AnyRef =
-    classLoader.loadClass(className).newInstance().asInstanceOf[AnyRef]
+  private def newInstance(classLoader: ClassLoader, className: String, args: Any*): AnyRef = {
+    val c = classLoader.loadClass(className).getDeclaredConstructors().find { c =>
+      argsConform(c.getParameterTypes, args)
+    }.get
+    c.newInstance(args.asInstanceOf[Seq[AnyRef]]: _*).asInstanceOf[AnyRef]
+  }
 
   private def invokeMethod(instance: AnyRef, methodName: String, args: Any*): Any = {
-    val m = instance.getClass.getDeclaredMethods().find { m =>
-      m.getName == methodName &&
-      m.getParameterCount == args.size &&
-      m.getParameterTypes.zip(args).forall {
-        case (formal, actual) =>
-          formal.isPrimitive() || formal.isInstance(actual)
-      }
+    val m = instance.getClass.getMethods().find { m =>
+      m.getName == methodName && argsConform(m.getParameterTypes, args)
     }.get
     m.invoke(instance, args.asInstanceOf[Seq[AnyRef]]: _*)
   }
@@ -123,12 +153,43 @@ object DynScalaJSPlugin extends AutoPlugin {
   }
 
   override def globalSettings: Seq[Setting[_]] = Seq(
-      dynScalaJSVersion := None
+      dynScalaJSVersion := None,
+
+      Def.derive {
+        dynScalaJSClassLoader := {
+          val scalaJSVersion = dynScalaJSVersion.value.getOrElse {
+            throw new MessageOnlyException(
+                "The current project is currently configured for the JVM. " +
+                "Cannot retried the Scala.js linker ClassLoader.")
+          }
+          val s = streams.value
+          val log = s.log
+          val retrieveDir = s.cacheDirectory / "scalajs-linker" / scalaJSVersion
+          val lm = {
+            import sbt.librarymanagement.ivy._
+            val ivyConfig = InlineIvyConfiguration().withLog(log)
+            IvyDependencyResolution(ivyConfig)
+          }
+          val artifactName =
+            if (scalaJSVersion.startsWith("0.6.")) "scalajs-js-envs_2.12"
+            else "scalajs-env-nodejs_2.12"
+          val maybeFiles = lm.retrieve(
+              "org.scala-js" % artifactName % scalaJSVersion,
+              scalaModuleInfo = None, retrieveDir, log)
+          val files = maybeFiles.fold({ unresolvedWarn =>
+            throw unresolvedWarn.resolveException
+          }, { files =>
+            files
+          })
+          val urls = files.map(_.toURI().toURL())
+          new java.net.URLClassLoader(urls.toArray, null)
+        }
+      }
   )
 
   val configSettings: Seq[Setting[_]] = Seq(
       dynScalaJSLinker := {
-        val classLoader = dynScalaJSLinkerClassLoader.value
+        val classLoader = dynScalaJSClassLoader.value
 
         val configMod = loadModule(classLoader,
             "org.scalajs.core.tools.linker.StandardLinker$Config")
@@ -139,6 +200,39 @@ object DynScalaJSPlugin extends AutoPlugin {
         invokeMethod(stdLinkerMod, "apply", config).asInstanceOf[AnyRef]
       },
 
+      scalaJSMainModuleInitializer := {
+        val classLoader = dynScalaJSClassLoader.value
+        mainClass.value.map { mainCl =>
+          val moduleInitializerMod = loadModule(classLoader,
+              "org.scalajs.core.tools.linker.ModuleInitializer")
+          invokeMethod(moduleInitializerMod, "mainMethodWithArgs",
+              mainCl, "main")
+        }
+      },
+
+      /* Do not inherit scalaJSModuleInitializers from the parent configuration.
+       * Instead, always derive them straight from the Zero configuration
+       * scope.
+       */
+      scalaJSModuleInitializers :=
+        (scalaJSModuleInitializers in (This, Zero, This)).value,
+
+      scalaJSModuleInitializers ++= {
+        if (scalaJSUseMainModuleInitializer.value) {
+          Seq(scalaJSMainModuleInitializer.value.getOrElse {
+            throw new MessageOnlyException(
+                "No main module initializer was specified (possibly because " +
+                "no or multiple main classes were found), but " +
+                "scalaJSUseMainModuleInitializer was set to true. " +
+                "You can explicitly specify it either with " +
+                "`mainClass := Some(...)` or with " +
+                "`scalaJSMainModuleInitializer := Some(...)`")
+          })
+        } else {
+          Seq.empty
+        }
+      },
+
       artifactPath in fastOptJS := {
         ((crossTarget in fastOptJS).value /
             ((moduleName in fastOptJS).value + "-fastopt.js"))
@@ -147,7 +241,7 @@ object DynScalaJSPlugin extends AutoPlugin {
       fastOptJS := {
         val s = streams.value
         val scalaJSVersion = dynScalaJSVersion.value.get
-        val classLoader = dynScalaJSLinkerClassLoader.value
+        val classLoader = dynScalaJSClassLoader.value
         val linker = dynScalaJSLinker.value
         val classpath = Attributed.data(fullClasspath.value)
         val output = (artifactPath in fastOptJS).value
@@ -175,22 +269,100 @@ object DynScalaJSPlugin extends AutoPlugin {
         val cache = invokeMethod(irFileCache, "newCache").asInstanceOf[AnyRef]
         val irFiles = invokeMethod(cache, "cached", irContainers)
 
-        val moduleInitializers = loadModule(classLoader,
-            "scala.collection.immutable.Nil")
+        val moduleInitializers = seq2scalaJSSeq(classLoader,
+            scalaJSModuleInitializers.value)
 
         val logger = sbtLogger2scalaJSLogger(classLoader, s.log)
 
         invokeMethod(linker, "link", irFiles, moduleInitializers, outFile, logger)
 
         Attributed.blank(output)
-      }
+      },
+
+      /* Do not inherit jsExecutionFiles from the parent configuration.
+       * Instead, always derive them straight from the Zero configuration
+       * scope.
+       */
+      jsExecutionFiles := (jsExecutionFiles in (This, Zero, This)).value,
+
+      // Crucially, add the Scala.js linked file to the JS files
+      jsExecutionFiles += {
+        val classLoader = dynScalaJSClassLoader.value
+        val linkedFile = fastOptJS.value.data
+        newInstance(classLoader, "org.scalajs.core.tools.io.FileVirtualJSFile",
+            linkedFile)
+      },
+
+      run := Def.settingDyn[InputTask[Unit]] {
+        dynScalaJSVersion.value match {
+          case None =>
+            Defaults.foregroundRunTask
+
+          case Some(scalaJSVersion) =>
+            Def.inputTask {
+              if (!scalaJSUseMainModuleInitializer.value) {
+                throw new MessageOnlyException(
+                    "`run` is only supported with " +
+                    "scalaJSUseMainModuleInitializer := true")
+              }
+
+              val classLoader = dynScalaJSClassLoader.value
+              val log = streams.value.log
+              val env = jsEnv.value.asInstanceOf[AnyRef]
+              val files = jsExecutionFiles.value
+
+              val scalaJSLogger = sbtLogger2scalaJSLogger(classLoader, log)
+              val consoleJSConsole = loadModule(classLoader,
+                  "org.scalajs.jsenv.ConsoleJSConsole")
+
+              log.info("Running " + mainClass.value.getOrElse("<unknown class>"))
+              log.debug(s"with JSEnv ${env.toString()}")
+
+              val jsRunner = if (scalaJSVersion.startsWith("0.6.")) {
+                val resolvedJSDependencyMod = loadModule(classLoader,
+                    "org.scalajs.core.tools.jsdep.ResolvedJSDependency")
+                val resolvedJSDependencies = for (file <- files) yield {
+                  invokeMethod(resolvedJSDependencyMod, "minimal", file)
+                }
+
+                val launcher = newInstance(classLoader,
+                    "org.scalajs.core.tools.io.MemVirtualJSFile",
+                    "No-op generated launcher file")
+
+                invokeMethod(env, "jsRunner",
+                    seq2scalaJSSeq(classLoader, resolvedJSDependencies),
+                    launcher).asInstanceOf[AnyRef]
+              } else {
+                invokeMethod(env, "jsRunner",
+                    seq2scalaJSSeq(classLoader, files)).asInstanceOf[AnyRef]
+              }
+
+              invokeMethod(jsRunner, "run", scalaJSLogger, consoleJSConsole)
+            }
+        }
+      }.evaluated,
   )
 
   val compileConfigSettings: Seq[Setting[_]] = configSettings
 
-  val testConfigSettings: Seq[Setting[_]] = configSettings
+  val testConfigSettings: Seq[Setting[_]] = Def.settings(
+      configSettings,
+
+      /* Always default to false for scalaJSUseMainModuleInitializer in testing
+       * configurations, even if it is true in the Global configuration scope.
+       */
+      scalaJSUseMainModuleInitializer := false,
+  )
 
   val baseProjectSettings: Seq[Setting[_]] = Seq(
+      crossPlatform := {
+        val prev = crossPlatform.value
+        dynScalaJSVersion.value match {
+          case None    => prev
+          case Some(v) => JSPlatform(v)
+        }
+      },
+
       crossTarget := {
         val prev = crossTarget.value
         dynScalaJSVersion.value match {
@@ -211,31 +383,15 @@ object DynScalaJSPlugin extends AutoPlugin {
         }
       },
 
-      dynScalaJSLinkerClassLoader := {
-        val scalaJSVersion = dynScalaJSVersion.value.getOrElse {
-          throw new MessageOnlyException(
-              "The current project is currently configured for the JVM. " +
-              "Cannot retried the Scala.js linker ClassLoader.")
-        }
-        val s = streams.value
-        val log = s.log
-        val retrieveDir = s.cacheDirectory / "scalajs-linker" / scalaJSVersion
-        val lm = {
-          import sbt.librarymanagement.ivy._
-          val ivyConfig = InlineIvyConfiguration().withLog(log)
-          IvyDependencyResolution(ivyConfig)
-        }
-        val maybeFiles = lm.retrieve(
-            "org.scala-js" % "scalajs-tools_2.12" % scalaJSVersion,
-            scalaModuleInfo = None, retrieveDir, log)
-        val files = maybeFiles.fold({ unresolvedWarn =>
-          throw unresolvedWarn.resolveException
-        }, { files =>
-          files
-        })
-        val urls = files.map(_.toURI().toURL())
-        new java.net.URLClassLoader(urls.toArray, null)
-      }
+      scalaJSModuleInitializers := Seq(),
+      scalaJSUseMainModuleInitializer := false,
+
+      jsEnv := {
+        val classLoader = dynScalaJSClassLoader.value
+        newInstance(classLoader, "org.scalajs.jsenv.nodejs.NodeJSEnv")
+      },
+
+      jsExecutionFiles := Nil,
   )
 
   override def projectSettings: Seq[Setting[_]] = {
