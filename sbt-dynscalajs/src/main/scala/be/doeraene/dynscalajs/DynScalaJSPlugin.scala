@@ -125,7 +125,35 @@ object DynScalaJSPlugin extends AutoPlugin {
   }
 
   override def globalSettings: Seq[Setting[_]] = Seq(
-      dynScalaJSVersion := None
+      dynScalaJSVersion := None,
+
+      Def.derive {
+        dynScalaJSLinkerClassLoader := {
+          val scalaJSVersion = dynScalaJSVersion.value.getOrElse {
+            throw new MessageOnlyException(
+                "The current project is currently configured for the JVM. " +
+                "Cannot retried the Scala.js linker ClassLoader.")
+          }
+          val s = streams.value
+          val log = s.log
+          val retrieveDir = s.cacheDirectory / "scalajs-linker" / scalaJSVersion
+          val lm = {
+            import sbt.librarymanagement.ivy._
+            val ivyConfig = InlineIvyConfiguration().withLog(log)
+            IvyDependencyResolution(ivyConfig)
+          }
+          val maybeFiles = lm.retrieve(
+              "org.scala-js" % "scalajs-tools_2.12" % scalaJSVersion,
+              scalaModuleInfo = None, retrieveDir, log)
+          val files = maybeFiles.fold({ unresolvedWarn =>
+            throw unresolvedWarn.resolveException
+          }, { files =>
+            files
+          })
+          val urls = files.map(_.toURI().toURL())
+          new java.net.URLClassLoader(urls.toArray, null)
+        }
+      }
   )
 
   val configSettings: Seq[Setting[_]] = Seq(
@@ -219,32 +247,6 @@ object DynScalaJSPlugin extends AutoPlugin {
               "org.scala-js" %% "scalajs-test-interface" % scalaJSVersion % "test"
           )
         }
-      },
-
-      dynScalaJSLinkerClassLoader := {
-        val scalaJSVersion = dynScalaJSVersion.value.getOrElse {
-          throw new MessageOnlyException(
-              "The current project is currently configured for the JVM. " +
-              "Cannot retried the Scala.js linker ClassLoader.")
-        }
-        val s = streams.value
-        val log = s.log
-        val retrieveDir = s.cacheDirectory / "scalajs-linker" / scalaJSVersion
-        val lm = {
-          import sbt.librarymanagement.ivy._
-          val ivyConfig = InlineIvyConfiguration().withLog(log)
-          IvyDependencyResolution(ivyConfig)
-        }
-        val maybeFiles = lm.retrieve(
-            "org.scala-js" % "scalajs-tools_2.12" % scalaJSVersion,
-            scalaModuleInfo = None, retrieveDir, log)
-        val files = maybeFiles.fold({ unresolvedWarn =>
-          throw unresolvedWarn.resolveException
-        }, { files =>
-          files
-        })
-        val urls = files.map(_.toURI().toURL())
-        new java.net.URLClassLoader(urls.toArray, null)
       }
   )
 
