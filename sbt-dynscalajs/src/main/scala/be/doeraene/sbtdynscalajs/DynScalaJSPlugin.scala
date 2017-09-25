@@ -20,6 +20,10 @@ object DynScalaJSPlugin extends AutoPlugin {
   override def requires: Plugins = plugins.JvmPlugin
 
   object autoImport {
+    // Stage values
+    val FastOptStage = Stage.FastOpt
+    val FullOptStage = Stage.FullOpt
+
     val dynScalaJSVersion: SettingKey[Option[String]] =
       settingKey[Option[String]]("the version of Scala.js to use, or None for the JVM")
 
@@ -47,6 +51,15 @@ object DynScalaJSPlugin extends AutoPlugin {
 
     val fastOptJS: TaskKey[Attributed[File]] =
       taskKey[Attributed[File]]("fastOptJS")
+
+    val fullOptJS: TaskKey[Attributed[File]] =
+      taskKey[Attributed[File]]("fullOptJS")
+
+    val scalaJSStage: SettingKey[Stage] =
+      settingKey[Stage]("Scala.js stage used for `run`, `test`, etc.")
+
+    val scalaJSLinkedFile: TaskKey[Attributed[File]] =
+      taskKey[Attributed[File]]("fastOptJS or fullOptJS, dependending on the value of scalaJSStage")
 
     val jsEnv: TaskKey[JSEnv] =
       taskKey[JSEnv]("The JavaScript environment in which to run and test Scala.js applications.")
@@ -76,7 +89,7 @@ object DynScalaJSPlugin extends AutoPlugin {
     c.newInstance(args.asInstanceOf[Seq[AnyRef]]: _*).asInstanceOf[AnyRef]
   }
 
-  private def invokeMethod(instance: AnyRef, methodName: String, args: Any*): Any = {
+  private def invokeMethod(instance: Any, methodName: String, args: Any*): Any = {
     val m = instance.getClass.getMethods().find { m =>
       m.getName == methodName && argsConform(m.getParameterTypes, args)
     }.get
@@ -195,17 +208,89 @@ object DynScalaJSPlugin extends AutoPlugin {
           val urls = files.map(_.toURI().toURL())
           new java.net.URLClassLoader(urls.toArray, null)
         }
-      }
+      },
+
+      scalaJSStage := FastOptStage,
   )
 
-  val configSettings: Seq[Setting[_]] = Seq(
-      scalaJSLinker := {
+  private def stageSettings(stage: Stage,
+      key: TaskKey[Attributed[File]]): Seq[Setting[_]] = Def.settings(
+
+      scalaJSLinker in key := {
         val classLoader = dynScalaJSClassLoader.value
-        val config = scalaJSLinkerConfig.value
+        val config = (scalaJSLinkerConfig in key).value
 
         val stdLinkerMod = loadModule(classLoader,
             "org.scalajs.core.tools.linker.StandardLinker")
         invokeMethod(stdLinkerMod, "apply", config).asInstanceOf[AnyRef]
+      },
+
+      key := {
+        val s = streams.value
+        val scalaJSVersion = dynScalaJSVersion.value.get
+        val classLoader = dynScalaJSClassLoader.value
+        val linker = (scalaJSLinker in key).value
+        val classpath = Attributed.data(fullClasspath.value)
+        val output = (artifactPath in fastOptJS).value
+
+        stage match {
+          case Stage.FastOpt => s.log.info("Fast optimizing " + output)
+          case Stage.FullOpt => s.log.info("Full optimizing " + output)
+        }
+
+        val irContainerModName = {
+          if (scalaJSVersion.startsWith("0.6."))
+            "org.scalajs.core.tools.io.IRFileCache$IRContainer"
+          else
+            "org.scalajs.core.tools.io.FileScalaJSIRContainer"
+        }
+        val irContainerMod = loadModule(classLoader, irContainerModName)
+        val scalaJSClasspathSeq = seq2scalaJSSeq(classLoader, classpath)
+        val irContainers = invokeMethod(irContainerMod, "fromClasspath",
+            scalaJSClasspathSeq)
+
+        val writableFileVirtualJSFileMod = loadModule(classLoader,
+            "org.scalajs.core.tools.io.WritableFileVirtualJSFile")
+        val outFile = invokeMethod(writableFileVirtualJSFileMod, "apply",
+            output)
+
+        val irFileCache = newInstance(classLoader,
+            "org.scalajs.core.tools.io.IRFileCache")
+        val cache = invokeMethod(irFileCache, "newCache").asInstanceOf[AnyRef]
+        val irFiles = invokeMethod(cache, "cached", irContainers)
+
+        val moduleInitializers = seq2scalaJSSeq(classLoader,
+            scalaJSModuleInitializers.value)
+
+        val logger = sbtLogger2scalaJSLogger(classLoader, s.log)
+
+        invokeMethod(linker, "link", irFiles, moduleInitializers, outFile, logger)
+
+        Attributed.blank(output)
+      },
+  )
+
+  val configSettings: Seq[Setting[_]] = Def.settings(
+      stageSettings(FastOptStage, fastOptJS),
+      stageSettings(FullOptStage, fullOptJS),
+
+      Seq(fastOptJS, fullOptJS).map { key =>
+        moduleName in key := {
+          val configSuffix = configuration.value match {
+            case Compile => ""
+            case config  => "-" + config.name
+          }
+          moduleName.value + configSuffix
+        }
+      },
+
+      scalaJSLinkerConfig in fullOptJS := {
+        val prev = (scalaJSLinkerConfig in fullOptJS).value
+        val prevSemantics = invokeMethod(prev, "semantics")
+        val newSemantics = invokeMethod(prevSemantics, "optimized")
+        val config1 = invokeMethod(prev, "withSemantics", newSemantics)
+        val config2 = invokeMethod(config1, "withClosureCompilerIfAvailable", true)
+        config2.asInstanceOf[AnyRef]
       },
 
       scalaJSMainModuleInitializer := {
@@ -246,46 +331,17 @@ object DynScalaJSPlugin extends AutoPlugin {
             ((moduleName in fastOptJS).value + "-fastopt.js"))
       },
 
-      fastOptJS := {
-        val s = streams.value
-        val scalaJSVersion = dynScalaJSVersion.value.get
-        val classLoader = dynScalaJSClassLoader.value
-        val linker = scalaJSLinker.value
-        val classpath = Attributed.data(fullClasspath.value)
-        val output = (artifactPath in fastOptJS).value
-
-        s.log.info("Fast optimizing " + output)
-
-        val irContainerModName = {
-          if (scalaJSVersion.startsWith("0.6."))
-            "org.scalajs.core.tools.io.IRFileCache$IRContainer"
-          else
-            "org.scalajs.core.tools.io.FileScalaJSIRContainer"
-        }
-        val irContainerMod = loadModule(classLoader, irContainerModName)
-        val scalaJSClasspathSeq = seq2scalaJSSeq(classLoader, classpath)
-        val irContainers = invokeMethod(irContainerMod, "fromClasspath",
-            scalaJSClasspathSeq)
-
-        val writableFileVirtualJSFileMod = loadModule(classLoader,
-            "org.scalajs.core.tools.io.WritableFileVirtualJSFile")
-        val outFile = invokeMethod(writableFileVirtualJSFileMod, "apply",
-            output)
-
-        val irFileCache = newInstance(classLoader,
-            "org.scalajs.core.tools.io.IRFileCache")
-        val cache = invokeMethod(irFileCache, "newCache").asInstanceOf[AnyRef]
-        val irFiles = invokeMethod(cache, "cached", irContainers)
-
-        val moduleInitializers = seq2scalaJSSeq(classLoader,
-            scalaJSModuleInitializers.value)
-
-        val logger = sbtLogger2scalaJSLogger(classLoader, s.log)
-
-        invokeMethod(linker, "link", irFiles, moduleInitializers, outFile, logger)
-
-        Attributed.blank(output)
+      artifactPath in fullOptJS := {
+        ((crossTarget in fullOptJS).value /
+            ((moduleName in fullOptJS).value + "-opt.js"))
       },
+
+      scalaJSLinkedFile := Def.settingDyn {
+        scalaJSStage.value match {
+          case Stage.FastOpt => fastOptJS
+          case Stage.FullOpt => fullOptJS
+        }
+      }.value,
 
       /* Do not inherit jsExecutionFiles from the parent configuration.
        * Instead, always derive them straight from the Zero configuration
@@ -294,7 +350,7 @@ object DynScalaJSPlugin extends AutoPlugin {
       jsExecutionFiles := (jsExecutionFiles in (This, Zero, This)).value,
 
       // Crucially, add the Scala.js linked file to the JS files
-      jsExecutionFiles +=  new FileVirtualJSFile(fastOptJS.value.data),
+      jsExecutionFiles +=  new FileVirtualJSFile(scalaJSLinkedFile.value.data),
 
       run := Def.settingDyn[InputTask[Unit]] {
         dynScalaJSVersion.value match {
