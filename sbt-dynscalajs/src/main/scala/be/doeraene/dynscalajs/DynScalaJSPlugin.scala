@@ -7,6 +7,11 @@ import sbt.Keys._
 
 import sbtcrossproject.CrossPlugin.autoImport._
 
+import org.scalajs.core.tools.io.{IO => _, _}
+
+import org.scalajs.jsenv._
+import org.scalajs.jsenv.nodejs.NodeJSEnv
+
 object DynScalaJSPlugin extends AutoPlugin {
   override def requires: Plugins = plugins.JvmPlugin
 
@@ -39,13 +44,11 @@ object DynScalaJSPlugin extends AutoPlugin {
     val fastOptJS: TaskKey[Attributed[File]] =
       taskKey[Attributed[File]]("fastOptJS")
 
-    /** Must be a `JSEnv` from `dynScalaJSClassLoader`. */
-    val jsEnv: TaskKey[Any] =
-      taskKey[Any]("The JavaScript environment in which to run and test Scala.js applications.")
+    val jsEnv: TaskKey[JSEnv] =
+      taskKey[JSEnv]("The JavaScript environment in which to run and test Scala.js applications.")
 
-    /** Elements must be `VirtualJSFile`s from `dynScalaJSClassLoader. */
-    val jsExecutionFiles: TaskKey[Seq[Any]] =
-      taskKey[Seq[Any]]("All the VirtualJSFiles given to JS environments on `run`, `test`, etc.")
+    val jsExecutionFiles: TaskKey[Seq[VirtualJSFile]] =
+      taskKey[Seq[VirtualJSFile]]("All the VirtualJSFiles given to JS environments on `run`, `test`, etc.")
   }
 
   import autoImport._
@@ -287,12 +290,7 @@ object DynScalaJSPlugin extends AutoPlugin {
       jsExecutionFiles := (jsExecutionFiles in (This, Zero, This)).value,
 
       // Crucially, add the Scala.js linked file to the JS files
-      jsExecutionFiles += {
-        val classLoader = dynScalaJSClassLoader.value
-        val linkedFile = fastOptJS.value.data
-        newInstance(classLoader, "org.scalajs.core.tools.io.FileVirtualJSFile",
-            linkedFile)
-      },
+      jsExecutionFiles +=  new FileVirtualJSFile(fastOptJS.value.data),
 
       run := Def.settingDyn[InputTask[Unit]] {
         dynScalaJSVersion.value match {
@@ -307,38 +305,17 @@ object DynScalaJSPlugin extends AutoPlugin {
                     "scalaJSUseMainModuleInitializer := true")
               }
 
-              val classLoader = dynScalaJSClassLoader.value
               val log = streams.value.log
-              val env = jsEnv.value.asInstanceOf[AnyRef]
+              val env = jsEnv.value
               val files = jsExecutionFiles.value
 
-              val scalaJSLogger = sbtLogger2scalaJSLogger(classLoader, log)
-              val consoleJSConsole = loadModule(classLoader,
-                  "org.scalajs.jsenv.ConsoleJSConsole")
+              val scalaJSLogger = Loggers.sbtLogger2ToolsLogger(log)
 
               log.info("Running " + mainClass.value.getOrElse("<unknown class>"))
-              log.debug(s"with JSEnv ${env.toString()}")
+              log.debug(s"with JSEnv ${env.name}")
 
-              val jsRunner = if (scalaJSVersion.startsWith("0.6.")) {
-                val resolvedJSDependencyMod = loadModule(classLoader,
-                    "org.scalajs.core.tools.jsdep.ResolvedJSDependency")
-                val resolvedJSDependencies = for (file <- files) yield {
-                  invokeMethod(resolvedJSDependencyMod, "minimal", file)
-                }
-
-                val launcher = newInstance(classLoader,
-                    "org.scalajs.core.tools.io.MemVirtualJSFile",
-                    "No-op generated launcher file")
-
-                invokeMethod(env, "jsRunner",
-                    seq2scalaJSSeq(classLoader, resolvedJSDependencies),
-                    launcher).asInstanceOf[AnyRef]
-              } else {
-                invokeMethod(env, "jsRunner",
-                    seq2scalaJSSeq(classLoader, files)).asInstanceOf[AnyRef]
-              }
-
-              invokeMethod(jsRunner, "run", scalaJSLogger, consoleJSConsole)
+              val jsRunner = env.jsRunner(files)
+              jsRunner.run(scalaJSLogger, ConsoleJSConsole)
             }
         }
       }.evaluated,
@@ -395,10 +372,7 @@ object DynScalaJSPlugin extends AutoPlugin {
       scalaJSModuleInitializers := Seq(),
       scalaJSUseMainModuleInitializer := false,
 
-      jsEnv := {
-        val classLoader = dynScalaJSClassLoader.value
-        newInstance(classLoader, "org.scalajs.jsenv.nodejs.NodeJSEnv")
-      },
+      jsEnv := new NodeJSEnv(),
 
       jsExecutionFiles := Nil,
   )
