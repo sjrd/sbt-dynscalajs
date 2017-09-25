@@ -17,8 +17,12 @@ object DynScalaJSPlugin extends AutoPlugin {
     val dynScalaJSClassLoader: TaskKey[ClassLoader] =
       taskKey[ClassLoader]("a ClassLoader loaded with the Scala.js linker API")
 
+    /** Must be a `StandardLinker.Config` from `dynScalaJSClassLoader`. */
+    val scalaJSLinkerConfig: TaskKey[AnyRef] =
+      taskKey[AnyRef]("Scala.js linker configuration")
+
     /** Must be a `Linker` from `dynScalaJSClassLoader`. */
-    val dynScalaJSLinker: TaskKey[AnyRef] =
+    val scalaJSLinker: TaskKey[AnyRef] =
       taskKey[AnyRef]("instance of the Scala.js linker")
 
     val scalaJSUseMainModuleInitializer: SettingKey[Boolean] =
@@ -188,12 +192,9 @@ object DynScalaJSPlugin extends AutoPlugin {
   )
 
   val configSettings: Seq[Setting[_]] = Seq(
-      dynScalaJSLinker := {
+      scalaJSLinker := {
         val classLoader = dynScalaJSClassLoader.value
-
-        val configMod = loadModule(classLoader,
-            "org.scalajs.core.tools.linker.StandardLinker$Config")
-        val config = invokeMethod(configMod, "apply")
+        val config = scalaJSLinkerConfig.value
 
         val stdLinkerMod = loadModule(classLoader,
             "org.scalajs.core.tools.linker.StandardLinker")
@@ -242,7 +243,7 @@ object DynScalaJSPlugin extends AutoPlugin {
         val s = streams.value
         val scalaJSVersion = dynScalaJSVersion.value.get
         val classLoader = dynScalaJSClassLoader.value
-        val linker = dynScalaJSLinker.value
+        val linker = scalaJSLinker.value
         val classpath = Attributed.data(fullClasspath.value)
         val output = (artifactPath in fastOptJS).value
 
@@ -381,6 +382,14 @@ object DynScalaJSPlugin extends AutoPlugin {
               "org.scala-js" %% "scalajs-test-interface" % scalaJSVersion % "test"
           )
         }
+      },
+
+      scalaJSLinkerConfig := {
+        val classLoader = dynScalaJSClassLoader.value
+
+        val configMod = loadModule(classLoader,
+            "org.scalajs.core.tools.linker.StandardLinker$Config")
+        invokeMethod(configMod, "apply").asInstanceOf[AnyRef]
       },
 
       scalaJSModuleInitializers := Seq(),
