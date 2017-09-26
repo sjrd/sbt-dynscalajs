@@ -271,6 +271,12 @@ object DynScalaJSPlugin extends AutoPlugin {
   )
 
   val configSettings: Seq[Setting[_]] = Def.settings(
+      unmanagedSourceDirectories += {
+        val suffix = dynScalaJSVersion.value.fold("jvm")(_ => "js")
+        val scalaSrcDir = scalaSource.value
+        scalaSrcDir.getParentFile / s"${scalaSrcDir.getName}-$suffix"
+      },
+
       stageSettings(FastOptStage, fastOptJS),
       stageSettings(FullOptStage, fullOptJS),
 
