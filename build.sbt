@@ -2,7 +2,7 @@ inThisBuild(Seq(
   version := "0.2.0-SNAPSHOT",
   organization := "be.doeraene",
 
-  scalaVersion := "2.12.3",
+  scalaVersion := "2.12.4",
   scalacOptions ++= Seq("-deprecation", "-feature", "-Xfatal-warnings"),
 
   homepage := Some(url("https://github.com/sjrd/sbt-dynscalajs")),

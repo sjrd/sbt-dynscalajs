@@ -13,7 +13,7 @@ script:
   - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("0.6.20")' sbt-dynscalajs-test-project/run
 
 scala:
-  - "2.12.3"
+  - "2.12.4"
 jdk:
   - oraclejdk8
 
