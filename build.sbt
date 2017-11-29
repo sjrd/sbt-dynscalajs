@@ -29,7 +29,7 @@ lazy val root = project.in(file(".")).
 lazy val `sbt-dynscalajs` = project.in(file("sbt-dynscalajs")).
   settings(
     sbtPlugin := true,
-    addSbtPlugin("org.scala-native" % "sbt-crossproject" % "0.2.2"),
+    addSbtPlugin("org.portable-scala" % "sbt-platform-deps" % "1.0.0-M2"),
     libraryDependencies ++= Seq(
       "org.scala-js" %% "scalajs-sbt-test-adapter" % "1.0.0-M1",
       "org.scala-js" %% "scalajs-env-nodejs" % "1.0.0-M1",

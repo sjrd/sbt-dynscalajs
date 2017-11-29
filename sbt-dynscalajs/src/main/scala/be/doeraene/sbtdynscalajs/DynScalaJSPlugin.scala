@@ -5,7 +5,7 @@ import scala.language.reflectiveCalls
 import sbt._
 import sbt.Keys._
 
-import sbtcrossproject.CrossPlugin.autoImport._
+import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 
 import org.scalajs.core.tools.io.{IO => _, _}
 
@@ -445,11 +445,13 @@ object DynScalaJSPlugin extends AutoPlugin {
   )
 
   val baseProjectSettings: Seq[Setting[_]] = Seq(
-      crossPlatform := {
-        val prev = crossPlatform.value
+      platformDepsCrossVersion := {
         dynScalaJSVersion.value match {
-          case None    => prev
-          case Some(v) => JSPlatform(v)
+          case None =>
+            platformDepsCrossVersion.value
+          case Some(v) =>
+            ScalaJSCrossVersion.binary(
+                ScalaJSCrossVersion.binaryScalaJSVersion(v))
         }
       },
 
