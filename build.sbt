@@ -1,8 +1,8 @@
 inThisBuild(Seq(
-  version := "0.1.1-SNAPSHOT",
+  version := "0.2.0-SNAPSHOT",
   organization := "be.doeraene",
 
-  scalaVersion := "2.12.3",
+  scalaVersion := "2.12.4",
   scalacOptions ++= Seq("-deprecation", "-feature", "-Xfatal-warnings"),
 
   homepage := Some(url("https://github.com/sjrd/sbt-dynscalajs")),
@@ -29,10 +29,10 @@ lazy val root = project.in(file(".")).
 lazy val `sbt-dynscalajs` = project.in(file("sbt-dynscalajs")).
   settings(
     sbtPlugin := true,
-    addSbtPlugin("org.scala-native" % "sbt-crossproject" % "0.2.2"),
+    addSbtPlugin("org.portable-scala" % "sbt-platform-deps" % "1.0.0-M2"),
     libraryDependencies ++= Seq(
-      "org.scala-js" %% "scalajs-sbt-test-adapter" % "1.0.0-M1",
-      "org.scala-js" %% "scalajs-env-nodejs" % "1.0.0-M1",
+      "org.scala-js" %% "scalajs-sbt-test-adapter" % "1.0.0-M2",
+      "org.scala-js" %% "scalajs-env-nodejs" % "1.0.0-M2",
     ),
 
     publishMavenStyle := true,
@@ -60,6 +60,6 @@ lazy val `sbt-dynscalajs-test-project`: Project = project.
   enablePlugins(DynScalaJSPlugin).
   settings(
     scalaJSUseMainModuleInitializer := true,
-    libraryDependencies += "com.lihaoyi" %%% "utest" % "0.5.3" % "test",
+    libraryDependencies += "com.lihaoyi" %%% "utest" % "0.6.3" % "test",
     testFrameworks += new TestFramework("utest.runner.Framework")
   )

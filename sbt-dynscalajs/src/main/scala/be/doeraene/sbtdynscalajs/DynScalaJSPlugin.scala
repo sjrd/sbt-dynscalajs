@@ -2,10 +2,14 @@ package be.doeraene.sbtdynscalajs
 
 import scala.language.reflectiveCalls
 
+import scala.annotation.tailrec
+
+import java.util.concurrent.atomic.AtomicReference
+
 import sbt._
 import sbt.Keys._
 
-import sbtcrossproject.CrossPlugin.autoImport._
+import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 
 import org.scalajs.core.tools.io.{IO => _, _}
 
@@ -14,10 +18,30 @@ import org.scalajs.core.tools.linker.ModuleKind
 import org.scalajs.jsenv._
 import org.scalajs.jsenv.nodejs.NodeJSEnv
 
-import org.scalajs.testadapter.FrameworkDetector
+import org.scalajs.testadapter.TestAdapter
 
 object DynScalaJSPlugin extends AutoPlugin {
   override def requires: Plugins = plugins.JvmPlugin
+
+  @tailrec
+  final private def registerResource[T <: AnyRef](
+      l: AtomicReference[List[T]], r: T): r.type = {
+    val prev = l.get()
+    if (l.compareAndSet(prev, r :: prev)) r
+    else registerResource(l, r)
+  }
+
+  private val createdTestAdapters =
+    new AtomicReference[List[TestAdapter]](Nil)
+
+  private def newTestAdapter(jsEnv: ComJSEnv, jsFiles: Seq[VirtualJSFile],
+      config: TestAdapter.Config): TestAdapter = {
+    registerResource(createdTestAdapters,
+        new TestAdapter(jsEnv, jsFiles, config))
+  }
+
+  private def closeAllTestAdapters(): Unit =
+    createdTestAdapters.getAndSet(Nil).foreach(_.close())
 
   object autoImport {
     // Stage values
@@ -211,6 +235,16 @@ object DynScalaJSPlugin extends AutoPlugin {
       },
 
       scalaJSStage := FastOptStage,
+
+      // Close all test adapters every time a sequence of tasks ends
+      onComplete := {
+        val prev = onComplete.value
+
+        { () =>
+          prev()
+          closeAllTestAdapters()
+        }
+      },
   )
 
   private def stageSettings(stage: Stage,
@@ -416,7 +450,21 @@ object DynScalaJSPlugin extends AutoPlugin {
                     "`fork in Test := false`.")
               }
 
+              val zeroSixVersion = raw"""0\.6\.(\d+)""".r
+              val knownInvalid = scalaJSVersion match {
+                case "1.0.0-M1"        => true
+                case zeroSixVersion(v) => v.toInt < 22
+                case _                 => false
+              }
+              if (knownInvalid) {
+                throw new MessageOnlyException(
+                    "Your version of sbt-dynscalajs is known not to be able " +
+                    s"to run tests with Scala.js $scalaJSVersion")
+              }
+
               val s = streams.value
+
+              val frameworks = testFrameworks.value
 
               val env = jsEnv.value match {
                 case env: ComJSEnv =>
@@ -432,24 +480,32 @@ object DynScalaJSPlugin extends AutoPlugin {
               val moduleKind = ModuleKind.NoModule
               val moduleIdentifier = None
 
-              val frameworksAndTheirImplNames =
-                testFrameworks.value.map(f => f -> f.implClassNames.toList)
+              val frameworkNames = frameworks.map(_.implClassNames.toList).toList
 
-              val logger = Loggers.sbtLogger2ToolsLogger(s.log)
+              val logger = Loggers.sbtLogger2ToolsLogger(streams.value.log)
+              val config = TestAdapter.Config()
+                .withLogger(logger)
+                .withModuleSettings(moduleKind, moduleIdentifier)
 
-              FrameworkDetector.detectFrameworks(env, files, moduleKind,
-                  moduleIdentifier, frameworksAndTheirImplNames, logger)
+              val adapter = newTestAdapter(env, files, config)
+              val frameworkAdapters = adapter.loadFrameworks(frameworkNames)
+
+              frameworks.zip(frameworkAdapters).collect {
+                case (tf, Some(adapter)) => (tf, adapter)
+              }.toMap
             }
         }
       }.value,
   )
 
   val baseProjectSettings: Seq[Setting[_]] = Seq(
-      crossPlatform := {
-        val prev = crossPlatform.value
+      platformDepsCrossVersion := {
         dynScalaJSVersion.value match {
-          case None    => prev
-          case Some(v) => JSPlatform(v)
+          case None =>
+            platformDepsCrossVersion.value
+          case Some(v) =>
+            ScalaJSCrossVersion.binary(
+                ScalaJSCrossVersion.binaryScalaJSVersion(v))
         }
       },
 
