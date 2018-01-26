@@ -1,5 +1,5 @@
 inThisBuild(Seq(
-  version := "0.2.0",
+  version := "0.2.1-SNAPSHOT",
   organization := "be.doeraene",
 
   scalaVersion := "2.12.4",
