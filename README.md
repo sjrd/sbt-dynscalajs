@@ -41,7 +41,7 @@ All of the following apply:
 Add the following dependency in your `project/plugins.sbt` file.
 
 ```scala
-addSbtPlugin("be.doeraene" % "sbt-dynscalajs" % "0.2.0")
+addSbtPlugin("be.doeraene" % "sbt-dynscalajs" % "0.2.1")
 ```
 
 You will also need to enable the `DynScalaJSPlugin` auto-plugin on `project`s you want to cross-compile, e.g.
@@ -76,7 +76,7 @@ All tasks will behave as usual for a JVM project.
 
 To switch to Scala.js, enter:
 
-    > set dynScalaJSVersion := Some("1.0.0-M2")
+    > set dynScalaJSVersion := Some("1.0.0-M3")
 
 or another supported version of Scala.js.
 
@@ -89,8 +89,8 @@ Moreover, `run` and `test` (and `testOnly`/`testQuick`) behave as on a Scala.js 
 The current version of sbt-dynscalajs has been tested with:
 
 * Scala.js 0.6.19 through 0.6.22
-* Scala.js 1.0.0-M1 and 1.0.0-M2
+* Scala.js 1.0.0-M1 through 1.0.0-M3
 
 Later versions in the 0.6.x cycle are expected to be compatible as well.
 
-However, the `test` tasks and friends only work with Scala.js 0.6.22+ and 1.0.0-M2.
+However, the `test` tasks and friends only work with Scala.js 0.6.22+ and 1.0.0-M2+.
