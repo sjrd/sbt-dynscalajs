@@ -7,10 +7,12 @@ script:
   - sbt ++$TRAVIS_SCALA_VERSION sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
   - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("1.0.0-M1")' sbt-dynscalajs-test-project/run
   - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("1.0.0-M2")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
+  - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("1.0.0-M3")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
   - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("0.6.19")' sbt-dynscalajs-test-project/run
   - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("0.6.22")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
   - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("1.0.0-M1")' sbt-dynscalajs-test-project/run
   - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("1.0.0-M2")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
+  - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("1.0.0-M3")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
   - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("0.6.19")' sbt-dynscalajs-test-project/run
   - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("0.6.22")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
 
