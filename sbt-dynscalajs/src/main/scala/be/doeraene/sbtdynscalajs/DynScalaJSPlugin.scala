@@ -11,14 +11,13 @@ import sbt.Keys._
 
 import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 
-import org.scalajs.core.tools.io.{IO => _, _}
-
-import org.scalajs.core.tools.linker.ModuleKind
+import org.scalajs.io.{IO => _, _}
 
 import org.scalajs.jsenv._
 import org.scalajs.jsenv.nodejs.NodeJSEnv
 
 import org.scalajs.testadapter.TestAdapter
+import org.scalajs.testadapter.TestAdapter.ModuleIdentifier
 
 object DynScalaJSPlugin extends AutoPlugin {
   override def requires: Plugins = plugins.JvmPlugin
@@ -507,15 +506,14 @@ object DynScalaJSPlugin extends AutoPlugin {
               val files = jsExecutionFiles.value
 
               // TODO Fetch this from scalaJSLinkerConfig
-              val moduleKind = ModuleKind.NoModule
-              val moduleIdentifier = None
+              val moduleIdentifier = ModuleIdentifier.NoModule
 
               val frameworkNames = frameworks.map(_.implClassNames.toList).toList
 
               val logger = Loggers.sbtLogger2ToolsLogger(streams.value.log)
               val config = TestAdapter.Config()
                 .withLogger(logger)
-                .withModuleSettings(moduleKind, moduleIdentifier)
+                .withModuleIdentifier(moduleIdentifier)
 
               val adapter = newTestAdapter(env, files, config)
               val frameworkAdapters = adapter.loadFrameworks(frameworkNames)

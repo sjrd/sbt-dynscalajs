@@ -2,7 +2,7 @@ package be.doeraene.sbtdynscalajs
 
 import sbt.{Level => SbtLevel, Logger => SbtLogger}
 
-import org.scalajs.core.tools.logging._
+import org.scalajs.logging._
 
 object Loggers {
   private class SbtLoggerWrapper(underlying: SbtLogger) extends Logger {

@@ -31,8 +31,8 @@ lazy val `sbt-dynscalajs` = project.in(file("sbt-dynscalajs")).
     sbtPlugin := true,
     addSbtPlugin("org.portable-scala" % "sbt-platform-deps" % "1.0.0-M2"),
     libraryDependencies ++= Seq(
-      "org.scala-js" %% "scalajs-sbt-test-adapter" % "1.0.0-M2",
-      "org.scala-js" %% "scalajs-env-nodejs" % "1.0.0-M2",
+      "org.scala-js" %% "scalajs-sbt-test-adapter" % "1.0.0-M3",
+      "org.scala-js" %% "scalajs-env-nodejs" % "1.0.0-M3",
     ),
 
     publishMavenStyle := true,
