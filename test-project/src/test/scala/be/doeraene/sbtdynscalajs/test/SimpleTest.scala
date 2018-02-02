@@ -1,16 +1,14 @@
 package be.doeraene.sbtdynscalajs.test
 
-import utest._
+import org.junit.Test
+import org.junit.Assert._
 
-object SimpleTest extends TestSuite {
-  val tests = Tests {
-    'trivial - {
-      assert(1 == 1)
-    }
-    "platform-dependant" - {
-      val incoming = 1.0.toString()
-      val expected = Platform.expectedDouble1toString
-      assert(incoming == expected)
-    }
+class SimpleTest {
+  @Test def trivial(): Unit = {
+    assertEquals(1, 1)
+  }
+
+  @Test def platformDependent(): Unit = {
+    assertEquals(Platform.expectedDouble1toString, 1.0.toString())
   }
 }

@@ -60,6 +60,43 @@ lazy val `sbt-dynscalajs-test-project`: Project = project.
   enablePlugins(DynScalaJSPlugin).
   settings(
     scalaJSUseMainModuleInitializer := true,
-    libraryDependencies += "com.lihaoyi" %%% "utest" % "0.6.3" % "test",
-    testFrameworks += new TestFramework("utest.runner.Framework")
+
+    libraryDependencies += {
+      dynScalaJSVersion.value match {
+        case None =>
+          "com.novocode" % "junit-interface" % "0.11" % "test"
+        case Some(scalaJSVer) =>
+          "org.scala-js" %% "scalajs-junit-test-runtime" % scalaJSVer % "test"
+      }
+    },
+
+    scalacOptions in Test ++= {
+      val scalaVer = scalaVersion.value
+      val s = streams.value
+      val log = s.log
+      val retrieveDir = s.cacheDirectory / "scalajs-junit-plugin"
+      dynScalaJSVersion.value match {
+        case None =>
+          Nil
+        case Some(scalaJSVer) =>
+          val lm = {
+            import sbt.librarymanagement.ivy._
+            val ivyConfig = InlineIvyConfiguration().withLog(log)
+            IvyDependencyResolution(ivyConfig)
+          }
+          val moduleID =
+            "org.scala-js" % s"scalajs-junit-test-plugin_$scalaVer" % scalaJSVer
+          val maybeFiles =
+            lm.retrieve(moduleID, scalaModuleInfo = None, retrieveDir, log)
+          val files = maybeFiles.fold({ unresolvedWarn =>
+            throw unresolvedWarn.resolveException
+          }, { files =>
+            files
+          })
+          val jar = files.find(_.getName.startsWith("scalajs-junit-test-plugin_")).getOrElse {
+            throw new MessageOnlyException("Could not find scalajs-junit-test-plugin")
+          }
+          Seq("-Xplugin:" + jar.getAbsolutePath)
+      }
+    },
   )
