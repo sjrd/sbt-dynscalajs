@@ -15,7 +15,26 @@ inThisBuild(Seq(
   scmInfo := Some(ScmInfo(
       url("https://github.com/sjrd/sbt-dynscalajs"),
       "scm:git:git@github.com:sjrd/sbt-dynscalajs.git",
-      Some("scm:git:git@github.com:sjrd/sbt-dynscalajs.git")))
+      Some("scm:git:git@github.com:sjrd/sbt-dynscalajs.git"))),
+
+  publishMavenStyle := true,
+  publishTo := {
+    val nexus = "https://oss.sonatype.org/"
+    if (version.value.endsWith("-SNAPSHOT"))
+      Some("snapshots" at nexus + "content/repositories/snapshots")
+    else
+      Some("releases" at nexus + "service/local/staging/deploy/maven2")
+  },
+  pomExtra := (
+    <developers>
+      <developer>
+        <id>sjrd</id>
+        <name>Sébastien Doeraene</name>
+        <url>https://github.com/sjrd/</url>
+      </developer>
+    </developers>
+  ),
+  pomIncludeRepository := { _ => false }
 ))
 
 val SourceDeps = config("sourcedeps")
@@ -43,26 +62,7 @@ lazy val `sbt-dynscalajs` = project.in(file("sbt-dynscalajs")).
     libraryDependencies ++= Seq(
       "org.scala-js" %% "scalajs-sbt-test-adapter" % ReferenceScalaJSVersion,
       "org.scala-js" %% "scalajs-env-nodejs" % ReferenceScalaJSVersion,
-    ),
-
-    publishMavenStyle := true,
-    publishTo := {
-      val nexus = "https://oss.sonatype.org/"
-      if (isSnapshot.value)
-        Some("snapshots" at nexus + "content/repositories/snapshots")
-      else
-        Some("releases" at nexus + "service/local/staging/deploy/maven2")
-    },
-    pomExtra := (
-      <developers>
-        <developer>
-          <id>sjrd</id>
-          <name>Sébastien Doeraene</name>
-          <url>https://github.com/sjrd/</url>
-        </developer>
-      </developers>
-    ),
-    pomIncludeRepository := { _ => false }
+    )
   )
 
 /** A project to recompile the sources of the 1.x test-bridge for 0.6.x. */
