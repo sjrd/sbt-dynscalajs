@@ -582,6 +582,16 @@ object DynScalaJSPlugin extends AutoPlugin {
         }
       },
 
+      crossVersion := {
+        dynScalaJSVersion.value match {
+          case None =>
+          crossVersion.value
+          case Some(v) =>
+            ScalaJSCrossVersion.binary(
+                ScalaJSCrossVersion.binaryScalaJSVersion(v))
+        }
+      },
+
       crossTarget := {
         val prev = crossTarget.value
         dynScalaJSVersion.value match {
