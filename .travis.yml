@@ -3,23 +3,26 @@ sudo: false
 language: scala
 
 script:
-  - sbt ++$TRAVIS_SCALA_VERSION sbt-dynscalajs/publishLocal
   - sbt ++$TRAVIS_SCALA_VERSION sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
-  - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("1.0.0-M1")' sbt-dynscalajs-test-project/run
-  - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("1.0.0-M2")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
-  - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("1.0.0-M3")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
-  - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("0.6.19")' sbt-dynscalajs-test-project/run
-  - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("0.6.22")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
-  - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("1.0.0-M1")' sbt-dynscalajs-test-project/run
-  - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("1.0.0-M2")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
-  - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("1.0.0-M3")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
-  - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("0.6.19")' sbt-dynscalajs-test-project/run
-  - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("0.6.22")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
+  - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("1.0.0-M8")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
+  - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("0.6.28")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
+  - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("1.0.0-M8")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
+  - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("0.6.28")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
+  - sbt ++$TRAVIS_SCALA_VERSION sbt-dynscalajs-test-bridge/publishLocal
 
 scala:
-  - "2.12.4"
+  - "2.12.8"
+  - "2.11.12"
 jdk:
   - openjdk8
+
+matrix:
+  include:
+    - scala: "2.12.8"
+      # The env var is only to distinguish caches on Travis
+      env: TEST_SBT_PLUGIN=true
+      script:
+        - sbt ++$TRAVIS_SCALA_VERSION sbt-dynscalajs/publishLocal
 
 cache:
   directories:

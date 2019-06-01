@@ -5,19 +5,18 @@ import scala.language.reflectiveCalls
 import scala.annotation.tailrec
 
 import java.util.concurrent.atomic.AtomicReference
+import java.nio.file.Path
 
 import sbt._
 import sbt.Keys._
 
 import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 
-import org.scalajs.io.{IO => _, _}
-
 import org.scalajs.jsenv._
 import org.scalajs.jsenv.nodejs.NodeJSEnv
 
-import org.scalajs.testadapter.TestAdapter
-import org.scalajs.testadapter.TestAdapter.ModuleIdentifier
+import org.scalajs.testing.adapter.TestAdapter
+import org.scalajs.testing.adapter.TestAdapterInitializer
 
 object DynScalaJSPlugin extends AutoPlugin {
   override def requires: Plugins = plugins.JvmPlugin
@@ -33,10 +32,10 @@ object DynScalaJSPlugin extends AutoPlugin {
   private val createdTestAdapters =
     new AtomicReference[List[TestAdapter]](Nil)
 
-  private def newTestAdapter(jsEnv: ComJSEnv, jsFiles: Seq[VirtualJSFile],
+  private def newTestAdapter(jsEnv: JSEnv, jsEnvInput: Input,
       config: TestAdapter.Config): TestAdapter = {
     registerResource(createdTestAdapters,
-        new TestAdapter(jsEnv, jsFiles, config))
+        new TestAdapter(jsEnv, jsEnvInput, config))
   }
 
   private def closeAllTestAdapters(): Unit =
@@ -64,6 +63,9 @@ object DynScalaJSPlugin extends AutoPlugin {
     val scalaJSUseMainModuleInitializer: SettingKey[Boolean] =
       settingKey[Boolean]("If true, adds the `mainClass` as a module initializer of the Scala.js module")
 
+    val scalaJSUseTestModuleInitializer: SettingKey[Boolean] =
+      settingKey[Boolean]("If true, adds the module initializer required for testing to the Scala.js module")
+
     /** Must be a `ModuleInitializer` from `dynScalaJSClassLoader`. */
     val scalaJSMainModuleInitializer: TaskKey[Option[Any]] =
       taskKey[Option[Any]]("The main module initializer, used if `scalaJSUseMainModuleInitializer` is true")
@@ -87,17 +89,14 @@ object DynScalaJSPlugin extends AutoPlugin {
     val jsEnv: TaskKey[JSEnv] =
       taskKey[JSEnv]("The JavaScript environment in which to run and test Scala.js applications.")
 
-    val jsExecutionFiles: TaskKey[Seq[VirtualJSFile]] =
-      taskKey[Seq[VirtualJSFile]]("All the VirtualJSFiles given to JS environments on `run`, `test`, etc.")
+    val jsEnvInput: TaskKey[Input] =
+      taskKey[Input]("The JSEnv.Input to give to the jsEnv for tasks such as `run` and `test`")
   }
 
   import autoImport._
 
-  private def hasOldLinkerAPI(scalaJSVer: String): Boolean = {
-    scalaJSVer.startsWith("0.6.") ||
-    scalaJSVer == "1.0.0-M1" ||
-    scalaJSVer == "1.0.0-M2"
-  }
+  private def hasOldLinkerAPI(scalaJSVer: String): Boolean =
+    scalaJSVer.startsWith("0.6.")
 
   private def linkerPackage(oldLinkerAPI: Boolean): String =
     if (oldLinkerAPI) "org.scalajs.core.tools.linker"
@@ -139,6 +138,19 @@ object DynScalaJSPlugin extends AutoPlugin {
       m.getName == methodName && argsConform(m.getParameterTypes, args)
     }.get
     m.invoke(instance, args.asInstanceOf[Seq[AnyRef]]: _*)
+  }
+
+  private def invokeAsyncMethod(classLoader: ClassLoader,
+      instance: Any, methodName: String, args: Any*): Any = {
+    val executionContextMod = loadModule(classLoader, "scala.concurrent.ExecutionContext")
+    val globalExecutionContext = invokeMethod(executionContextMod, "global")
+    val futureResult = invokeMethod(instance, methodName, (args :+ globalExecutionContext): _*)
+
+    val durationMod = loadModule(classLoader, "scala.concurrent.duration.Duration")
+    val durationInf = invokeMethod(durationMod, "Inf")
+
+    val awaitMod = loadModule(classLoader, "scala.concurrent.Await")
+    invokeMethod(awaitMod, "result", futureResult, durationInf)
   }
 
   def scalaJSLogLevel2sbtLogLevel(classLoader: ClassLoader, level: AnyRef): Level.Value = {
@@ -210,6 +222,13 @@ object DynScalaJSPlugin extends AutoPlugin {
             val elapsedTime = endTime - startTime
             logger.debug(s"$title: ${elapsedTime / 1000} us")
             result
+          case "timeFuture" =>
+            // TODO Actually time something
+            val title = args(0).asInstanceOf[String]
+            val bodyFun = args(1).asInstanceOf[{ def apply(): Object }]
+            logger.debug(s"$title: not measured")
+            val resultFuture = bodyFun()
+            resultFuture
         }
       }
     }
@@ -301,32 +320,48 @@ object DynScalaJSPlugin extends AutoPlugin {
 
         val oldLinkerAPI = hasOldLinkerAPI(scalaJSVersion)
 
-        val irContainerModName = irioPackage(oldLinkerAPI) + {
-          if (scalaJSVersion.startsWith("0.6.")) ".IRFileCache$IRContainer"
-          else ".FileScalaJSIRContainer"
-        }
-        val irContainerMod = loadModule(classLoader, irContainerModName)
-        val scalaJSClasspathSeq = seq2scalaJSSeq(classLoader, classpath)
-        val irContainers = invokeMethod(irContainerMod, "fromClasspath",
-            scalaJSClasspathSeq)
-
-        val writableFileVirtualJSFileMod = loadModule(classLoader,
-            s"${ioPackage(oldLinkerAPI)}.WritableFileVirtualJSFile")
-        val outFile = invokeMethod(writableFileVirtualJSFileMod, "apply",
-            output)
+        val logger = sbtLogger2scalaJSLogger(scalaJSVersion, classLoader, s.log)
+        val moduleInitializers = seq2scalaJSSeq(classLoader,
+            scalaJSModuleInitializers.value)
 
         val irFileCache = newInstance(classLoader,
             s"${irioPackage(oldLinkerAPI)}.IRFileCache")
         val cache = invokeMethod(irFileCache, "newCache").asInstanceOf[AnyRef]
-        val irFiles = invokeMethod(cache, "cached", irContainers)
 
-        val moduleInitializers = seq2scalaJSSeq(classLoader,
-            scalaJSModuleInitializers.value)
+        if (oldLinkerAPI) {
+          val scalaJSClasspathSeq = seq2scalaJSSeq(classLoader, classpath)
 
-        val logger = sbtLogger2scalaJSLogger(scalaJSVersion, classLoader, s.log)
+          val irContainerModName = s"${irioPackage(oldLinkerAPI)}.IRFileCache$$IRContainer"
+          val irContainerMod = loadModule(classLoader, irContainerModName)
+          val irContainers = invokeMethod(
+              irContainerMod, "fromClasspath", scalaJSClasspathSeq)
 
-        invokeMethod(linker, "link", irFiles, moduleInitializers, outFile, logger)
+          val writableFileVirtualJSFileMod = loadModule(classLoader,
+              s"${ioPackage(oldLinkerAPI)}.WritableFileVirtualJSFile")
+          val outFile = invokeMethod(writableFileVirtualJSFileMod, "apply",
+              output)
 
+          val irFiles = invokeMethod(cache, "cached", irContainers)
+
+          invokeMethod(linker, "link", irFiles, moduleInitializers, outFile, logger)
+        } else {
+          val scalaJSClasspathSeq = seq2scalaJSSeq(classLoader, classpath.map(_.toPath()))
+
+          val irContainerModName = s"${irioPackage(oldLinkerAPI)}.FileScalaJSIRContainer"
+          val irContainerMod = loadModule(classLoader, irContainerModName)
+          val irContainers = invokeAsyncMethod(classLoader,
+              irContainerMod, "fromClasspath", scalaJSClasspathSeq)
+          val irFiles = invokeAsyncMethod(classLoader, cache, "cached", irContainers)
+
+          val outFile = newInstance(classLoader,
+              s"${irioPackage(oldLinkerAPI)}.AtomicWritableFileVirtualBinaryFile",
+              output.toPath())
+          val linkerOutputMod = loadModule(classLoader, s"${linkerPackage(oldLinkerAPI)}.LinkerOutput")
+          val out = invokeMethod(linkerOutputMod, "apply", outFile)
+
+          invokeAsyncMethod(classLoader, linker, "link",
+              irFiles, moduleInitializers, out, logger)
+        }
         Attributed.blank(output)
       },
   )
@@ -412,14 +447,12 @@ object DynScalaJSPlugin extends AutoPlugin {
         }
       }.value,
 
-      /* Do not inherit jsExecutionFiles from the parent configuration.
-       * Instead, always derive them straight from the Zero configuration
-       * scope.
-       */
-      jsExecutionFiles := (jsExecutionFiles in (This, Zero, This)).value,
-
-      // Crucially, add the Scala.js linked file to the JS files
-      jsExecutionFiles +=  new FileVirtualJSFile(scalaJSLinkedFile.value.data),
+      // Use the Scala.js linked file as the default Input for the JSEnv
+      jsEnvInput := {
+        // TODO Support module kinds
+        val linkedFile = scalaJSLinkedFile.value.data.toPath
+        Input.ScriptsToLoad(List(linkedFile))
+      },
 
       run := Def.settingDyn[InputTask[Unit]] {
         dynScalaJSVersion.value match {
@@ -436,15 +469,15 @@ object DynScalaJSPlugin extends AutoPlugin {
 
               val log = streams.value.log
               val env = jsEnv.value
-              val files = jsExecutionFiles.value
 
-              val scalaJSLogger = Loggers.sbtLogger2ToolsLogger(log)
-
-              log.info("Running " + mainClass.value.getOrElse("<unknown class>"))
+              val className = mainClass.value.getOrElse("<unknown class>")
+              log.info(s"Running $className. Hit any key to interrupt.")
               log.debug(s"with JSEnv ${env.name}")
 
-              val jsRunner = env.jsRunner(files)
-              jsRunner.run(scalaJSLogger, ConsoleJSConsole)
+              val input = jsEnvInput.value
+              val config = RunConfig().withLogger(Loggers.sbtLogger2ToolsLogger(log))
+
+              Run.runInterruptible(env, input, config)
             }
         }
       }.evaluated,
@@ -460,6 +493,36 @@ object DynScalaJSPlugin extends AutoPlugin {
        */
       scalaJSUseMainModuleInitializer := false,
 
+      // Use test module initializer by default.
+      scalaJSUseTestModuleInitializer := true,
+
+      scalaJSModuleInitializers ++= {
+        val scalaJSVersion = dynScalaJSVersion.value.get
+        val classLoader = dynScalaJSClassLoader.value
+
+        val useMain = scalaJSUseMainModuleInitializer.value
+        val useTest = scalaJSUseTestModuleInitializer.value
+        val configName = configuration.value.name
+
+        if (useTest) {
+          if (useMain) {
+            throw new MessageOnlyException("You may only set one of " +
+                s"`scalaJSUseMainModuleInitializer in $configName` and " +
+                s"`scalaJSUseTestModuleInitializer in $configName` to true")
+          }
+
+          val oldLinkerAPI = hasOldLinkerAPI(scalaJSVersion)
+          val moduleInitializerMod = loadModule(classLoader,
+              s"${linkerPackage(oldLinkerAPI)}.ModuleInitializer")
+          val moduleInitializer = invokeMethod(moduleInitializerMod, "mainMethod",
+              TestAdapterInitializer.ModuleClassName,
+              TestAdapterInitializer.MainMethodName)
+          Seq(moduleInitializer)
+        } else {
+          Seq.empty
+        }
+      },
+
       loadedTestFrameworks := Def.settingDyn[Task[Map[TestFramework, sbt.testing.Framework]]] {
         dynScalaJSVersion.value match {
           case None =>
@@ -473,49 +536,31 @@ object DynScalaJSPlugin extends AutoPlugin {
 
           case Some(scalaJSVersion) =>
             Def.task {
+              val configName = configuration.value.name
+
               if (fork.value) {
                 throw new MessageOnlyException(
-                    "`test` tasks in a Scala.js project require " +
-                    "`fork in Test := false`.")
+                    s"`test in $configName` tasks in a Scala.js project require " +
+                    s"`fork in $configName := false`.")
               }
 
-              val zeroSixVersion = raw"""0\.6\.(\d+)""".r
-              val knownInvalid = scalaJSVersion match {
-                case "1.0.0-M1"        => true
-                case zeroSixVersion(v) => v.toInt < 22
-                case _                 => false
-              }
-              if (knownInvalid) {
+              if (!scalaJSUseTestModuleInitializer.value) {
                 throw new MessageOnlyException(
-                    "Your version of sbt-dynscalajs is known not to be able " +
-                    s"to run tests with Scala.js $scalaJSVersion")
+                    s"You may only use `test in $configName` tasks in " +
+                    "a Scala.js project if `scalaJSUseTestModuleInitializer in " +
+                    s"$configName := true`")
               }
-
-              val s = streams.value
 
               val frameworks = testFrameworks.value
-
-              val env = jsEnv.value match {
-                case env: ComJSEnv =>
-                  env
-                case env =>
-                  throw new MessageOnlyException(
-                      s"You need a ComJSEnv to test (found ${env.name})")
-              }
-
-              val files = jsExecutionFiles.value
-
-              // TODO Fetch this from scalaJSLinkerConfig
-              val moduleIdentifier = ModuleIdentifier.NoModule
-
+              val env = jsEnv.value
+              val input = jsEnvInput.value
               val frameworkNames = frameworks.map(_.implClassNames.toList).toList
 
               val logger = Loggers.sbtLogger2ToolsLogger(streams.value.log)
               val config = TestAdapter.Config()
                 .withLogger(logger)
-                .withModuleIdentifier(moduleIdentifier)
 
-              val adapter = newTestAdapter(env, files, config)
+              val adapter = newTestAdapter(env, input, config)
               val frameworkAdapters = adapter.loadFrameworks(frameworkNames)
 
               frameworks.zip(frameworkAdapters).collect {
@@ -537,6 +582,16 @@ object DynScalaJSPlugin extends AutoPlugin {
         }
       },
 
+      crossVersion := {
+        dynScalaJSVersion.value match {
+          case None =>
+          crossVersion.value
+          case Some(v) =>
+            ScalaJSCrossVersion.binary(
+                ScalaJSCrossVersion.binaryScalaJSVersion(v))
+        }
+      },
+
       crossTarget := {
         val prev = crossTarget.value
         dynScalaJSVersion.value match {
@@ -549,10 +604,17 @@ object DynScalaJSPlugin extends AutoPlugin {
         dynScalaJSVersion.value.fold[Seq[ModuleID]] {
           Nil
         } { scalaJSVersion =>
+          val testBridge = {
+            if (scalaJSVersion.startsWith("0.6."))
+              "be.doeraene" %% "sbt-dynscalajs-test-bridge_sjs0.6" % "0.3.0-SNAPSHOT" % "test"
+            else
+              "org.scala-js" %% "scalajs-test-bridge" % "1.0.0-M8" % "test"
+          }
+
           Seq(
               "org.scala-js" %% "scalajs-library" % scalaJSVersion,
               "org.scala-js" % "scalajs-compiler" % scalaJSVersion % "plugin" cross CrossVersion.full,
-              "org.scala-js" %% "scalajs-test-interface" % scalaJSVersion % "test"
+              testBridge
           )
         }
       },
@@ -571,8 +633,6 @@ object DynScalaJSPlugin extends AutoPlugin {
       scalaJSUseMainModuleInitializer := false,
 
       jsEnv := new NodeJSEnv(),
-
-      jsExecutionFiles := Nil,
   )
 
   override def projectSettings: Seq[Setting[_]] = {
