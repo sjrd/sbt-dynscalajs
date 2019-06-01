@@ -5,7 +5,8 @@ inThisBuild(Seq(
   version := "0.3.0-SNAPSHOT",
   organization := "be.doeraene",
 
-  scalaVersion := "2.12.8",
+  crossScalaVersions := Seq("2.12.8", "2.11.12"),
+  scalaVersion := crossScalaVersions.value.head,
   scalacOptions ++= Seq("-deprecation", "-feature", "-Xfatal-warnings"),
 
   homepage := Some(url("https://github.com/sjrd/sbt-dynscalajs")),
