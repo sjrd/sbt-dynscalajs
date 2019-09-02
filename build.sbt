@@ -5,7 +5,7 @@ inThisBuild(Seq(
   version := "0.3.1-SNAPSHOT",
   organization := "be.doeraene",
 
-  crossScalaVersions := Seq("2.12.8", "2.11.12"),
+  crossScalaVersions := Seq("2.12.8", "2.11.12", "2.13.0"),
   scalaVersion := crossScalaVersions.value.head,
   scalacOptions ++= Seq("-deprecation", "-feature", "-Xfatal-warnings"),
 
