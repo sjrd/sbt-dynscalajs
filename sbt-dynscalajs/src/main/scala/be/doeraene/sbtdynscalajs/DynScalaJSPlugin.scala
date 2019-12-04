@@ -32,7 +32,7 @@ object DynScalaJSPlugin extends AutoPlugin {
   private val createdTestAdapters =
     new AtomicReference[List[TestAdapter]](Nil)
 
-  private def newTestAdapter(jsEnv: JSEnv, jsEnvInput: Input,
+  private def newTestAdapter(jsEnv: JSEnv, jsEnvInput: Seq[Input],
       config: TestAdapter.Config): TestAdapter = {
     registerResource(createdTestAdapters,
         new TestAdapter(jsEnv, jsEnvInput, config))
@@ -89,8 +89,8 @@ object DynScalaJSPlugin extends AutoPlugin {
     val jsEnv: TaskKey[JSEnv] =
       taskKey[JSEnv]("The JavaScript environment in which to run and test Scala.js applications.")
 
-    val jsEnvInput: TaskKey[Input] =
-      taskKey[Input]("The JSEnv.Input to give to the jsEnv for tasks such as `run` and `test`")
+    val jsEnvInput: TaskKey[Seq[Input]] =
+      taskKey[Seq[Input]]("The JSEnv.Input to give to the jsEnv for tasks such as `run` and `test`")
   }
 
   import autoImport._
@@ -98,21 +98,9 @@ object DynScalaJSPlugin extends AutoPlugin {
   private def hasOldLinkerAPI(scalaJSVer: String): Boolean =
     scalaJSVer.startsWith("0.6.")
 
-  private def linkerPackage(oldLinkerAPI: Boolean): String =
-    if (oldLinkerAPI) "org.scalajs.core.tools.linker"
-    else "org.scalajs.linker"
-
-  private def ioPackage(oldLinkerAPI: Boolean): String =
-    if (oldLinkerAPI) "org.scalajs.core.tools.io"
-    else "org.scalajs.io"
-
-  private def loggingPackage(oldLinkerAPI: Boolean): String =
-    if (oldLinkerAPI) "org.scalajs.core.tools.logging"
-    else "org.scalajs.logging"
-
-  private def irioPackage(oldLinkerAPI: Boolean): String =
-    if (oldLinkerAPI) "org.scalajs.core.tools.io"
-    else "org.scalajs.linker.irio"
+  private def moduleInitializerModName(oldLinkerAPI: Boolean): String =
+    if (oldLinkerAPI) "org.scalajs.core.tools.linker.ModuleInitializer"
+    else "org.scalajs.linker.interface.ModuleInitializer"
 
   private def argsConform(parameterTypes: Array[Class[_]],
       args: Seq[Any]): Boolean = {
@@ -136,7 +124,10 @@ object DynScalaJSPlugin extends AutoPlugin {
   private def invokeMethod(instance: Any, methodName: String, args: Any*): Any = {
     val m = instance.getClass.getMethods().find { m =>
       m.getName == methodName && argsConform(m.getParameterTypes, args)
-    }.get
+    }.getOrElse {
+      throw new NoSuchMethodException(
+          s"${instance.getClass.getName}.$methodName(${args.map(_.getClass).mkString(", ")})")
+    }
     m.invoke(instance, args.asInstanceOf[Seq[AnyRef]]: _*)
   }
 
@@ -168,8 +159,10 @@ object DynScalaJSPlugin extends AutoPlugin {
     import java.lang.reflect.{InvocationHandler, Method, Proxy}
 
     val oldLinkerAPI = hasOldLinkerAPI(scalaJSVersion)
-    val scalaJSLoggerClass = classLoader.loadClass(
-        s"${loggingPackage(oldLinkerAPI)}.Logger")
+    val scalaJSLoggerClassName =
+      if (oldLinkerAPI) "org.scalajs.core.tools.logging.Logger"
+      else "org.scalajs.logging.Logger"
+    val scalaJSLoggerClass = classLoader.loadClass(scalaJSLoggerClassName)
 
     val handler = new InvocationHandler {
       def invoke(proxy: AnyRef, method: Method, args: Array[AnyRef]): AnyRef = {
@@ -300,9 +293,15 @@ object DynScalaJSPlugin extends AutoPlugin {
 
         val oldLinkerAPI = hasOldLinkerAPI(scalaJSVersion)
 
-        val stdLinkerMod = loadModule(classLoader,
-            s"${linkerPackage(oldLinkerAPI)}.StandardLinker")
-        invokeMethod(stdLinkerMod, "apply", config).asInstanceOf[AnyRef]
+        if (oldLinkerAPI) {
+          val stdLinkerMod = loadModule(classLoader,
+              "org.scalajs.core.tools.linker.StandardLinker")
+          invokeMethod(stdLinkerMod, "apply", config).asInstanceOf[AnyRef]
+        } else {
+          val standardImplMod = loadModule(classLoader,
+              "org.scalajs.linker.StandardImpl")
+          invokeMethod(standardImplMod, "linker", config).asInstanceOf[AnyRef]
+        }
       },
 
       key := {
@@ -324,20 +323,20 @@ object DynScalaJSPlugin extends AutoPlugin {
         val moduleInitializers = seq2scalaJSSeq(classLoader,
             scalaJSModuleInitializers.value)
 
-        val irFileCache = newInstance(classLoader,
-            s"${irioPackage(oldLinkerAPI)}.IRFileCache")
-        val cache = invokeMethod(irFileCache, "newCache").asInstanceOf[AnyRef]
-
         if (oldLinkerAPI) {
+          val irFileCache = newInstance(classLoader,
+              "org.scalajs.core.tools.io.IRFileCache")
+          val cache = invokeMethod(irFileCache, "newCache").asInstanceOf[AnyRef]
+
           val scalaJSClasspathSeq = seq2scalaJSSeq(classLoader, classpath)
 
-          val irContainerModName = s"${irioPackage(oldLinkerAPI)}.IRFileCache$$IRContainer"
+          val irContainerModName = "org.scalajs.core.tools.io.IRFileCache$IRContainer"
           val irContainerMod = loadModule(classLoader, irContainerModName)
           val irContainers = invokeMethod(
               irContainerMod, "fromClasspath", scalaJSClasspathSeq)
 
           val writableFileVirtualJSFileMod = loadModule(classLoader,
-              s"${ioPackage(oldLinkerAPI)}.WritableFileVirtualJSFile")
+              "org.scalajs.core.tools.io.WritableFileVirtualJSFile")
           val outFile = invokeMethod(writableFileVirtualJSFileMod, "apply",
               output)
 
@@ -345,18 +344,24 @@ object DynScalaJSPlugin extends AutoPlugin {
 
           invokeMethod(linker, "link", irFiles, moduleInitializers, outFile, logger)
         } else {
+          val standardImplMod = loadModule(classLoader,
+              "org.scalajs.linker.StandardImpl")
+          val irFileCache = invokeMethod(standardImplMod, "irFileCache")
+          val cache = invokeMethod(irFileCache, "newCache").asInstanceOf[AnyRef]
+
           val scalaJSClasspathSeq = seq2scalaJSSeq(classLoader, classpath.map(_.toPath()))
 
-          val irContainerModName = s"${irioPackage(oldLinkerAPI)}.FileScalaJSIRContainer"
+          val irContainerModName = "org.scalajs.linker.PathIRContainer"
           val irContainerMod = loadModule(classLoader, irContainerModName)
-          val irContainers = invokeAsyncMethod(classLoader,
+          val irContainersPairs = invokeAsyncMethod(classLoader,
               irContainerMod, "fromClasspath", scalaJSClasspathSeq)
+          val irContainers = invokeMethod(irContainersPairs, "_1")
           val irFiles = invokeAsyncMethod(classLoader, cache, "cached", irContainers)
 
-          val outFile = newInstance(classLoader,
-              s"${irioPackage(oldLinkerAPI)}.AtomicWritableFileVirtualBinaryFile",
-              output.toPath())
-          val linkerOutputMod = loadModule(classLoader, s"${linkerPackage(oldLinkerAPI)}.LinkerOutput")
+          val outputFileModName = "org.scalajs.linker.PathOutputFile"
+          val outputFileMod = loadModule(classLoader, outputFileModName)
+          val outFile = invokeMethod(outputFileMod, "atomic", output.toPath())
+          val linkerOutputMod = loadModule(classLoader, "org.scalajs.linker.interface.LinkerOutput")
           val out = invokeMethod(linkerOutputMod, "apply", outFile)
 
           invokeAsyncMethod(classLoader, linker, "link",
@@ -401,7 +406,7 @@ object DynScalaJSPlugin extends AutoPlugin {
         mainClass.value.map { mainCl =>
           val oldLinkerAPI = hasOldLinkerAPI(scalaJSVersion)
           val moduleInitializerMod = loadModule(classLoader,
-              s"${linkerPackage(oldLinkerAPI)}.ModuleInitializer")
+              moduleInitializerModName(oldLinkerAPI))
           invokeMethod(moduleInitializerMod, "mainMethodWithArgs",
               mainCl, "main")
         }
@@ -451,7 +456,7 @@ object DynScalaJSPlugin extends AutoPlugin {
       jsEnvInput := {
         // TODO Support module kinds
         val linkedFile = scalaJSLinkedFile.value.data.toPath
-        Input.ScriptsToLoad(List(linkedFile))
+        List(Input.Script(linkedFile))
       },
 
       run := Def.settingDyn[InputTask[Unit]] {
@@ -513,7 +518,7 @@ object DynScalaJSPlugin extends AutoPlugin {
 
           val oldLinkerAPI = hasOldLinkerAPI(scalaJSVersion)
           val moduleInitializerMod = loadModule(classLoader,
-              s"${linkerPackage(oldLinkerAPI)}.ModuleInitializer")
+              moduleInitializerModName(oldLinkerAPI))
           val moduleInitializer = invokeMethod(moduleInitializerMod, "mainMethod",
               TestAdapterInitializer.ModuleClassName,
               TestAdapterInitializer.MainMethodName)
@@ -608,7 +613,7 @@ object DynScalaJSPlugin extends AutoPlugin {
             if (scalaJSVersion.startsWith("0.6."))
               "be.doeraene" %% "sbt-dynscalajs-test-bridge_sjs0.6" % "0.3.1-SNAPSHOT" % "test"
             else
-              "org.scala-js" %% "scalajs-test-bridge" % "1.0.0-M8" % "test"
+              "org.scala-js" %% "scalajs-test-bridge" % "1.0.0-RC1" % "test"
           }
 
           Seq(
@@ -624,8 +629,10 @@ object DynScalaJSPlugin extends AutoPlugin {
         val classLoader = dynScalaJSClassLoader.value
 
         val oldLinkerAPI = hasOldLinkerAPI(scalaJSVersion)
-        val configMod = loadModule(classLoader,
-            s"${linkerPackage(oldLinkerAPI)}.StandardLinker$$Config")
+        val configModName =
+          if (oldLinkerAPI) "org.scalajs.core.tools.linker.StandardLinker$Config"
+          else "org.scalajs.linker.interface.StandardConfig"
+        val configMod = loadModule(classLoader, configModName)
         invokeMethod(configMod, "apply").asInstanceOf[AnyRef]
       },
 

@@ -1,4 +1,4 @@
-val ReferenceScalaJSVersion = "1.0.0-M8"
+val ReferenceScalaJSVersion = "1.0.0-RC1"
 val ReferenceScalaJS06xVersion = "0.6.28"
 
 inThisBuild(Seq(
