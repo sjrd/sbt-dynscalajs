@@ -2,7 +2,7 @@ val ReferenceScalaJSVersion = "1.0.0-RC1"
 val ReferenceScalaJS06xVersion = "0.6.28"
 
 inThisBuild(Seq(
-  version := "0.3.1-SNAPSHOT",
+  version := "0.4.0",
   organization := "be.doeraene",
 
   crossScalaVersions := Seq("2.12.8", "2.11.12", "2.13.0"),
