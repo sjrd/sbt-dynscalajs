@@ -4,9 +4,9 @@ language: scala
 
 script:
   - sbt ++$TRAVIS_SCALA_VERSION sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
-  - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("1.0.0-RC1")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
+  - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("1.0.0")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
   - sbt ++$TRAVIS_SCALA_VERSION 'set dynScalaJSVersion in Global := Some("0.6.28")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
-  - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("1.0.0-RC1")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
+  - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("1.0.0")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
   - sbt ++$TRAVIS_SCALA_VERSION 'set scalaJSStage in Global := FullOptStage' 'set dynScalaJSVersion in Global := Some("0.6.28")' sbt-dynscalajs-test-project/run sbt-dynscalajs-test-project/test
   - sbt ++$TRAVIS_SCALA_VERSION sbt-dynscalajs-test-bridge/publishLocal
 

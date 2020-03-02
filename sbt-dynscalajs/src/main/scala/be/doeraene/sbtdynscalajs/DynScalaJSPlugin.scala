@@ -613,7 +613,7 @@ object DynScalaJSPlugin extends AutoPlugin {
             if (scalaJSVersion.startsWith("0.6."))
               "be.doeraene" %% "sbt-dynscalajs-test-bridge_sjs0.6" % "0.4.1-SNAPSHOT" % "test"
             else
-              "org.scala-js" %% "scalajs-test-bridge" % "1.0.0-RC1" % "test"
+              "org.scala-js" %% "scalajs-test-bridge" % "1.0.0" % "test"
           }
 
           Seq(
