@@ -11,15 +11,15 @@ script:
   - sbt ++$TRAVIS_SCALA_VERSION sbt-dynscalajs-test-bridge/publishLocal
 
 scala:
-  - "2.12.8"
+  - "2.12.10"
   - "2.11.12"
-  - "2.13.0"
+  - "2.13.1"
 jdk:
   - openjdk8
 
 matrix:
   include:
-    - scala: "2.12.8"
+    - scala: "2.12.10"
       # The env var is only to distinguish caches on Travis
       env: TEST_SBT_PLUGIN=true
       script:
