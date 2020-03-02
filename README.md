@@ -24,7 +24,6 @@ Things that are absent include, but are not limited to:
 * `crossProject` (the plugin replaces that mechanism)
 * `jsDependencies`, `testHtml`, `scalajsp`
 * Support for downstream sbt plugins extending Scala.js (e.g., `scalajs-bundler`, `sbt-jsdependencies`, `sbt-web-scalajs`)
-* Support for sbt 0.13.x
 
 ## Do use this project if
 
@@ -34,14 +33,13 @@ All of the following apply:
 * You maintain a Scala library and are mostly interested in its JVM flavour
 * You want to build, test and publish the Scala.js version of your library
 * You do not like `crossProject`, and/or you do not like environment variables to switch between Scala.js 0.6.x and 1.x
-* Your project uses sbt 1.x
 
 ## Setup
 
 Add the following dependency in your `project/plugins.sbt` file.
 
 ```scala
-addSbtPlugin("be.doeraene" % "sbt-dynscalajs" % "0.4.0")
+addSbtPlugin("be.doeraene" % "sbt-dynscalajs" % "1.0.0")
 ```
 
 You will also need to enable the `DynScalaJSPlugin` auto-plugin on `project`s you want to cross-compile, e.g.
@@ -76,7 +74,7 @@ All tasks will behave as usual for a JVM project.
 
 To switch to Scala.js, enter:
 
-    > set dynScalaJSVersion := Some("1.0.0-RC1")
+    > set dynScalaJSVersion := Some("1.0.0")
 
 or another supported version of Scala.js.
 
@@ -89,6 +87,7 @@ Moreover, `run` and `test` (and `testOnly`/`testQuick`) behave as on a Scala.js 
 The current version of sbt-dynscalajs has been tested with:
 
 * Scala.js 0.6.28
-* Scala.js 1.0.0-RC1
+* Scala.js 0.6.32
+* Scala.js 1.0.0
 
-Later versions in the 0.6.x cycle are expected to be compatible as well.
+Later versions in the 0.6.x and 1.x cycles are expected to be compatible as well.
