@@ -611,7 +611,7 @@ object DynScalaJSPlugin extends AutoPlugin {
         } { scalaJSVersion =>
           val testBridge = {
             if (scalaJSVersion.startsWith("0.6."))
-              "be.doeraene" %% "sbt-dynscalajs-test-bridge_sjs0.6" % "1.0.0" % "test"
+              "be.doeraene" %% "sbt-dynscalajs-test-bridge_sjs0.6" % "1.0.1-SNAPSHOT" % "test"
             else
               "org.scala-js" %% "scalajs-test-bridge" % "1.0.0" % "test"
           }
